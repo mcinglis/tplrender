@@ -1,0 +1,155 @@
+#!/bin/env python
+
+# Copyright 2015  Malcolm Inglis <http://minglis.id.au>
+#
+# This file is part of Libmaybe.
+#
+# Libmaybe is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the
+# Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+#
+# Libmaybe is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+# more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with Libmaybe. If not, see <https://gnu.org/licenses/>.
+
+
+import os
+from argparse import ArgumentParser, ArgumentTypeError
+from subprocess import check_call
+
+import jinja2
+
+
+class TemplateLoader(jinja2.BaseLoader):
+    def get_source(self, environment, template_path):
+        filename = os.path.join(os.getcwd(), template_path)
+        mtime = os.path.getmtime(filename)
+        def uptodate():
+            return os.path.getmtime(filename) == mtime
+        contents = read_file(template_path)
+        return contents, filename, uptodate
+
+
+def read_file(p):
+    with open(p, 'r') as f:
+        return f.read().decode()
+
+
+def make_arg_parser(program_name):
+    p = ArgumentParser(prog=program_name, description=
+            'Renders a given Jinja template file with attributes derived from '
+            'the given arguments. The attributes are derived in such a way '
+            'for this to be useful for generating C source files of generic '
+            'data types and functions.')
+    p.add_argument('template', help=
+            'Path to the template file to render.')
+    p.add_argument('type', help=
+            'The actual type in code; e.g. `uint8_t` or `void const *`')
+    p.add_argument('-o', '--output', default='/dev/stdout', help=
+            'The path to the directory to generate the files into.')
+    p.add_argument('--typename', help=
+            'The name used as the suffix of "generic" types; e.g. '
+            '`Maybe_{{typename}}`. By default, this is derived from the '
+            '`type` argument; e.g. `Foo const *` becomes `ptr_Foo`.')
+    p.add_argument('--funcname', help=
+            'The name used in the prefix of functions; e.g. '
+            '`maybe_{{funcname}}__is_value()`. By default, this is the '
+            '`--typename` value converted to lowercase.')
+    p.add_argument('--macroname', help=
+            'The name used in macros and the include guards; e.g. '
+            '`LIBMAYBE_MAYBE_{{macroname}}_H`. By default, this is the '
+            '`--typename` value converted to uppercase.')
+    p.add_argument('--filename', help=
+            'The name used in formatting the path names. By default, this is '
+            'the `--typename` option converted to lowercase and underscores '
+            'replaced by hyphens.')
+    p.add_argument('--typeclasses', nargs='*', metavar='TC', help=
+            'Typeclasses implemented by this type, if any; e.g. EQ, ORD.')
+    p.add_argument('--rel-headers', nargs='*', metavar='PATH', help=
+            'Paths to `#include ""` in the rendered output.')
+    p.add_argument('--sys-headers', nargs='*', metavar='PATH', help=
+            'Paths to `#include <>` in the rendered output.')
+    p.add_argument('--extra', nargs='*', type=parse_attr, metavar='k=v', help=
+            'Extra attributes to render the template with, like `key=val`.')
+
+    return p
+
+
+def parse_attr(s):
+    if '=' not in s:
+        raise ArgumentTypeError('`%s` doesn\'t contain a `=`' % s)
+    else:
+        return tuple(s.split('=', 1))
+
+
+def typename_from_type(type):
+    # given:    type = 'size_t    const   *  *'
+    us = '_'.join(t[:-2] if t.endswith('_t') else t
+                  for t in reversed(type.split()))
+    # then:     us = '*_*_const_size'
+    tn = us.replace('*_const_void', 'ptr')\
+           .replace('*_void',       'ptrm')\
+           .replace('*_const',      'ptr')\
+           .replace('*',            'ptrm')
+    # then:     tn = 'ptrm_ptr_size'
+    return tn
+
+
+def parse_args(argv):
+    p = make_arg_parser(argv[0])
+    args = p.parse_args(argv[1:])
+    if not args.typename:
+        args.typename = typename_from_type(args.type)
+    if not args.funcname:
+        args.funcname = args.typename.lower()
+    if not args.macroname:
+        args.macroname = args.typename.upper()
+    if not args.filename:
+        args.filename = args.typename.lower().replace('_', '-')
+    if not args.typeclasses:
+        args.typeclasses = []
+    if not args.rel_headers:
+        args.rel_headers = []
+    if not args.sys_headers:
+        args.sys_headers = []
+    if not args.extra:
+        args.extra = []
+    args.extra = dict(args.extra)
+    return args
+
+
+def args_to_attrs(args):
+    return dict({a: getattr(args, a) for a in
+                 ['type', 'typename', 'funcname', 'macroname', 'filename',
+                  'typeclasses', 'rel_headers', 'sys_headers']}.items()
+              + args.extra.items())
+
+
+def main(argv):
+    # Parse the arguments:
+    args = parse_args(argv)
+    # Create the output's parent directories if they don't exist:
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        check_call(['mkdir', '-p', output_dir])
+    # Turn the argument's `Namespace` object into a `dict` of attributes:
+    attrs = args_to_attrs(args)
+    # Render the templates with the attributes into the paths:
+    env = jinja2.Environment(loader=TemplateLoader(),
+                             undefined=jinja2.StrictUndefined)
+    env.get_template(args.template)\
+       .stream(template_path=args.template, **attrs)\
+       .dump(args.output)
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    sys.exit(main(sys.argv))
+
+
