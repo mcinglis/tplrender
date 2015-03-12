@@ -3,7 +3,7 @@
 
 I use it in the build process of C libraries to provide a simple templating system: [Libarray](https://gitorious.org/mcinglis/libarray), [Libmaybe](https://gitorious.org/mcinglis/libmaybe), etc.
 
-tplrender is available at [Bitbucket](https://bitbucket.org/mcinglis/tplrender), and [GitHub](https://github.com/mcinglis/tplrender), and [Gitorious](https://gitorious.org/mcinglis/tplrender).
+tplrender is available at [Bitbucket](https://bitbucket.org/mcinglis/tplrender) and [GitHub](https://github.com/mcinglis/tplrender).
 
 ## License
 
