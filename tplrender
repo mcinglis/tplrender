@@ -108,7 +108,7 @@ def parse_args(argv):
     if not args.macroname:
         args.macroname = args.typename.upper()
     if not args.filename:
-        args.filename = args.typename.lower().replace('_', '-')
+        args.filename = args.typename.lower()
     if not args.typeclasses:
         args.typeclasses = []
     if not args.rel_headers:
